@@ -11,19 +11,19 @@
   - Green LED 2:  Pin 3 (through ULN2003A - HIGH = ON)
   - Red LED:      Pin 4 (through ULN2003A - HIGH = ON)
   - DMX output:   Pin 1 (TX) through QY-838 RS485 module
-
+ 
   Libraries: Bounce2, DMXSerial, ledBlink (custom class)
 
   NOTE: Hardware serial (pins 0 & 1) is used for DMX.
 
   State           Red LED   Green LEDs                  DMX Output
   Boot/Idle       ON        OFF                         Scene OFF
-  Start pressed   ON        Blinking (0.5-2.5s random)  Scene OFF
+  Start pressed   ON        Blinking (0.5-2.5s random)  Scene OFF (blinking)
   After blink     OFF       Solid ON                    Scene ON
   Stop pressed    ON        OFF                         Scene OFF
 
   date: 26.4.2026
-  ver:  v0.2 @Ferbi
+  ver:  v0.21 @Ferbi
   for:  Kajak-kanu Tacen
 */
 
@@ -44,20 +44,30 @@
 // ============================================
 // DMX DEVICE CONFIGURATION
 // ============================================
-// Each RGB PAR lamp uses 3 CONSECUTIVE channels:
+// Each RGB PAR lamp uses 4 CONSECUTIVE channels:
 // Starting address: Red channel
 // Starting address + 1: Green channel
 // Starting address + 2: Blue channel
+// Starting address + 3: Dimmer (optional)
 
 const uint16_t rgbLampStartAddresses[] = {
-  10,   // Lamp 1: uses channels 10,11,12
-  15
+  10,   // Lamp uses channels RGB 10,11,12 + 13 dimmer
+  20,
+  30
 };
 
 const uint16_t relayAddresses[] = {
-  50,   // Relay 1 at channel 50
-  51    // Relay 2 at channel 51
+  40,     // Relay 1 at channel 40 - NO
+  41,     // Relay 2 at channel 41 - NO
+  42      // Relay 3 at channel 42 - NO
 };
+
+const uint16_t relayAddressesINV[] = {
+  45,     // Relay 4 at channel 45 - NC
+  46,     // Relay 5 at channel 46 - NC
+  47      // Relay 6 at channel 47 - NC
+};
+
 
 // ============================================
 // DMX VALUES
@@ -65,8 +75,8 @@ const uint16_t relayAddresses[] = {
 #define DMX_OFF     0
 #define DMX_FULL    255
 
-const uint8_t COLOR_OFF[] = {0, 0, 0};        // All off
-const uint8_t COLOR_GREEN[] = {0, 255, 0};    // Pure green
+const uint8_t COLOR_OFF[] = {255, 0, 0, 255};   // Pure red
+const uint8_t COLOR_ON[] = {0, 255, 0, 255};    // Pure green
 
 // ============================================
 // TIMING CONFIGURATION
@@ -109,6 +119,7 @@ bool currentDMXSceneIsOn = false;
 // Calculate number of devices automatically
 const uint8_t numRGBLamps = sizeof(rgbLampStartAddresses) / sizeof(rgbLampStartAddresses[0]);
 const uint8_t numRelays = sizeof(relayAddresses) / sizeof(relayAddresses[0]);
+const uint8_t numRelaysINV = sizeof(relayAddressesINV) / sizeof(relayAddressesINV[0]);
 uint16_t maxDMXChannel = 0;
 
 // ============================================
@@ -118,6 +129,7 @@ void sendDMXSceneOff();
 void sendDMXSceneOn();
 void setAllRGBLamps(const uint8_t* rgb);
 void setAllRelays(uint8_t value);
+void setAllRelaysINV(uint8_t value);
 void updateMaxDMXChannel();
 void startBlinkSequence();
 void checkState();
@@ -196,7 +208,7 @@ void loop() {
       // green LEDs are turned ON with startBlinkSequence();
 
       if (currentDMXSceneIsOn) {        // Send OFF scene if not already active - just in case
-        sendDMXSceneOff(); 
+        sendDMXSceneOff();
         currentDMXSceneIsOn = false;
       }
       break;
@@ -238,11 +250,13 @@ void checkState() {
 void sendDMXSceneOff() {
   setAllRGBLamps(COLOR_OFF);
   setAllRelays(DMX_OFF);
+  setAllRelaysINV(DMX_FULL);
 }
 
 void sendDMXSceneOn() {
-  setAllRGBLamps(COLOR_GREEN);
+  setAllRGBLamps(COLOR_ON);
   setAllRelays(DMX_FULL);
+  setAllRelaysINV(DMX_OFF);
 }
 
 void setAllRGBLamps(const uint8_t* rgb) {
@@ -251,6 +265,7 @@ void setAllRGBLamps(const uint8_t* rgb) {
     DMXSerial.write(baseAddr, rgb[0]);
     DMXSerial.write(baseAddr + 1, rgb[1]);
     DMXSerial.write(baseAddr + 2, rgb[2]);
+    DMXSerial.write(baseAddr + 3, rgb[3]);
   }
 }
 
@@ -260,17 +275,28 @@ void setAllRelays(uint8_t value) {
   }
 }
 
+void setAllRelaysINV(uint8_t value) {
+  for (uint8_t i = 0; i < numRelaysINV; i++) {
+    DMXSerial.write(relayAddressesINV[i], value);
+  }
+}
+
 void updateMaxDMXChannel() {
   maxDMXChannel = 0;
 
   for (uint8_t i = 0; i < numRGBLamps; i++) {
-    uint16_t lastChannel = rgbLampStartAddresses[i] + 2;
+    uint16_t lastChannel = rgbLampStartAddresses[i] + 3;
     if (lastChannel > maxDMXChannel) maxDMXChannel = lastChannel;
   }
 
   for (uint8_t i = 0; i < numRelays; i++) {
     if (relayAddresses[i] > maxDMXChannel) maxDMXChannel = relayAddresses[i];
   }
+
+  for (uint8_t i = 0; i < numRelaysINV; i++) {
+    if (relayAddressesINV[i] > maxDMXChannel) maxDMXChannel = relayAddressesINV[i];
+  }
+
 }
 
 // ============================================
