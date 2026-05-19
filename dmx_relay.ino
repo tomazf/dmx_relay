@@ -11,7 +11,9 @@
   - Green LED 2:  Pin 3 (through ULN2003A - HIGH = ON)
   - Red LED:      Pin 4 (through ULN2003A - HIGH = ON)
   - DMX output:   Pin 1 (TX) through QY-838 RS485 module
- 
+
+  - v0.3: added Buzzer control
+
   Libraries: Bounce2, DMXSerial, ledBlink (custom class)
 
   NOTE: Hardware serial (pins 0 & 1) is used for DMX.
@@ -23,7 +25,7 @@
   Stop pressed    ON        OFF                         Scene OFF
 
   date: 26.4.2026
-  ver:  v0.21 @Ferbi
+  ver:  v0.3 @Ferbi
   for:  Kajak-kanu Tacen
 */
 
@@ -122,6 +124,11 @@ const uint8_t numRelays = sizeof(relayAddresses) / sizeof(relayAddresses[0]);
 const uint8_t numRelaysINV = sizeof(relayAddressesINV) / sizeof(relayAddressesINV[0]);
 uint16_t maxDMXChannel = 0;
 
+// For buzzer (3rd relay) delay
+unsigned long buzzerOffTime = 0;
+bool buzzerTimerActive = false;
+#define BUZZER_DELAY_MS 250         // Configurable delay in milliseconds
+
 // ============================================
 // FUNCTION PROTOTYPES
 // ============================================
@@ -133,6 +140,7 @@ void setAllRelaysINV(uint8_t value);
 void updateMaxDMXChannel();
 void startBlinkSequence();
 void checkState();
+void turnOffThirdRelay();
 
 // ============================================
 // SETUP
@@ -229,6 +237,12 @@ void loop() {
 // STATE CONTROL FUNCTIONS
 // ============================================
 void checkState() {
+  // Handle buzzer timer (independent of state)
+  if (buzzerTimerActive && (long)(millis() - buzzerOffTime) >= 0) {
+    turnOffThirdRelay();
+    buzzerTimerActive = false;
+  }
+
   // Handle button presses (state transitions)
   if (startButton.fell() && currentState == STATE_IDLE) {
     startBlinkSequence();
@@ -251,12 +265,19 @@ void sendDMXSceneOff() {
   setAllRGBLamps(COLOR_OFF);
   setAllRelays(DMX_OFF);
   setAllRelaysINV(DMX_FULL);
+
+  // Cancel buzzer timer
+  buzzerTimerActive = false;
 }
 
 void sendDMXSceneOn() {
   setAllRGBLamps(COLOR_ON);
   setAllRelays(DMX_FULL);
   setAllRelaysINV(DMX_OFF);
+
+  // Start timer to turn off 3rd relay after delay
+  buzzerOffTime = millis() + BUZZER_DELAY_MS;
+  buzzerTimerActive = true;
 }
 
 void setAllRGBLamps(const uint8_t* rgb) {
@@ -310,4 +331,13 @@ void startBlinkSequence() {
   greenLED2.set_blink(BLINK_INTERVAL, BLINK_INTERVAL);
   greenLED1.blink();
   greenLED2.blink();
+}
+
+
+// ============================================
+// RELAY CONTROL FUNCTIONS
+// ============================================
+void turnOffThirdRelay() {
+  DMXSerial.write(relayAddresses[2], DMX_OFF);        // Index 2 = 3rd relay
+  DMXSerial.write(relayAddressesINV[2], DMX_FULL);    // Index 2 = 3rd relay
 }
